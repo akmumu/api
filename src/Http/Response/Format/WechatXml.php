@@ -64,43 +64,24 @@ class WechatXml extends Format
         array_walk_recursive($content, function (&$value) {
             $value = $this->morphToArray($value);
         });
-        $this->getWechatXml($content['detail']);
-        // print_r($this->request);
-        if ($content['type'] == 'text')
+
+        if (!empty($content['request']))
         {
-            return $this->replyText($content='wocao');
+            $this->request = $content['request'];
         }
+        if ($content['mark'])
+        {
+            $this->set_funcflag();
+        }
+        if (in_array($content['type'], ['replyText', 'replyNews', 'replyMusic']) )
+        {
+            return $this->$content['type']($content['detail']);
+        }
+        
 
         return $this->encode([]);
     }
     
-    //获取微信发来带有用户消息的XML
-    public function getWechatXml($xml='')
-    {
-        $postObj = simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NOCDATA);
-        $request = (array)$postObj;
-
-        // 可以解析信息的详细信息
-        // $fromUsername = $postObj->FromUserName;
-        // $toUsername = $postObj->ToUserName;
-        // $Message = trim($postObj->Content);
-        // $MsgType = trim($postObj->MsgType);
-        
-        // $Location_X = $postObj->Location_X;
-        // $Location_Y = $postObj->Location_Y;
-        // $Scale = $postObj->Scale;
-        // $Label = $postObj->Label;
-        // $PicUrl = $postObj->PicUrl;
-        // $MsgId  = $postObj->MsgId;
-        // $Url = $postObj->Url;
-        // $Event = $postObj->Event;
-        // $Latitude = $postObj->Latitude;
-        // $Longitude = $postObj->Longitude;
-        // $Precision = $postObj->Precision;
-        // $EventKey = $postObj->EventKey;
-
-        $this->request = $request;
-    }
 
     //星标消息
     public function set_funcflag()
@@ -123,6 +104,78 @@ class WechatXml extends Format
 eot;
         $req = $this->request;
         return sprintf($textTpl, $req['FromUserName'], $req['ToUserName'], time(), 'text', $message, $this->funcflag ? 1 : 0);
+    }
+
+    //回复图文
+    public function replyNews($arr_item)
+    {
+        $itemTpl = <<<eot
+        <item>
+            <Title><![CDATA[%s]]></Title>
+            <Discription><![CDATA[%s]]></Discription>
+            <PicUrl><![CDATA[%s]]></PicUrl>
+            <Url><![CDATA[%s]]></Url>
+        </item>
+eot;
+        $real_arr_item = $arr_item;
+        if (isset($arr_item['title']))
+            $real_arr_item = array($arr_item);
+        
+        $nr = count($real_arr_item);
+        $item_str = "";
+        foreach ($real_arr_item as $item)
+            $item_str .= sprintf($itemTpl, $item['title'], $item['description'],
+                    $item['pic'], $item['url']);
+        
+        $time = time();
+        $fun = $this->funcflag ? 1 : 0;
+        return <<<eot
+<xml>
+    <ToUserName><![CDATA[{$this->request['FromUserName']}]]></ToUserName>
+    <FromUserName><![CDATA[{$this->request['ToUserName']}]]></FromUserName>
+    <CreateTime>{$time}</CreateTime>
+    <MsgType><![CDATA[news]]></MsgType>
+    <Content><![CDATA[]]></Content>
+    <ArticleCount>{$nr}</ArticleCount>
+    <Articles>
+$item_str
+    </Articles>
+    <FuncFlag>{$fun}</FuncFlag>
+</xml>
+eot;
+    }
+
+    //回复音乐消息
+    public function replyMusic($arr_item)
+    {
+        $itemTpl = <<<eot
+            <Title><![CDATA[%s]]></Title>
+            <Description><![CDATA[%s]]></Description>
+            <MusicUrl><![CDATA[%s]]></MusicUrl> 
+            <HQMusicUrl><![CDATA[%s]]></HQMusicUrl>
+eot;
+        $real_arr_item = $arr_item;
+        if (isset($arr_item['title']))
+            $real_arr_item = array($arr_item);
+        $item_str = "";
+        foreach ($real_arr_item as $item)
+            $item_str .= sprintf($itemTpl, $item['title'], $item['description'], $item['murl'], $item['hqurl']);
+        
+        $time = time();
+        $fun = $this->funcflag ? 1 : 0;
+        
+        return <<<eot
+<xml>
+    <ToUserName><![CDATA[{$this->request['FromUserName']}]]></ToUserName>
+    <FromUserName><![CDATA[{$this->request['ToUserName']}]]></FromUserName>
+    <CreateTime>{$time}</CreateTime>
+    <MsgType><![CDATA[music]]></MsgType>
+    <Music>
+{$item_str}
+    </Music>
+    <FuncFlag>{$fun}</FuncFlag>
+</xml> 
+eot;
     }
 
     /**
