@@ -71,11 +71,12 @@ class WechatXml extends Format
         {
             $this->request = $content['request'];
         }
-        if ($content['mark'])
+        if (!empty($content['mark']))
         {
             $this->set_funcflag();
         }
-        if (in_array($content['type'], ['replyText', 'replyNews', 'replyMusic']) )
+        if (!empty($content['type']) &&
+            in_array($content['type'], ['checkWechat', 'replyText', 'replyNews', 'replyMusic']) )
         {
             return $this->$content['type']($content['detail']);
         }
@@ -89,6 +90,32 @@ class WechatXml extends Format
     public function set_funcflag()
     {
         $this->funcflag = true;
+    }
+
+    //第一次微信验证服务器地址的有效性
+    public function checkWechat($message)
+    {
+        $ret = false;
+        if (!empty($_GET["signature"]) &&
+            !empty($_GET["timestamp"]) &&
+            !empty($_GET["nonce"]) &&
+            !empty($_GET["echostr"])
+        ){
+            $signature = $_GET["signature"];
+            $timestamp = $_GET["timestamp"];
+            $nonce = $_GET["nonce"];
+            $token = $message;
+            $tmpArr = array($token, $timestamp, $nonce);
+            sort($tmpArr);
+            $tmpStr = implode($tmpArr);
+            $tmpStr = sha1($tmpStr);
+            if ($tmpStr == $signature)
+            {
+                echo $echoStr = $_GET["echostr"];
+                exit;
+            }
+        }
+        return $ret;
     }
 
     //回复文本
