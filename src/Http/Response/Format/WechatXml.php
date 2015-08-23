@@ -55,6 +55,8 @@ class WechatXml extends Format
      *
      * @param array|\Illuminate\Contracts\Support\Arrayable $content
      *
+     * 根据类型回复微信的数据结构
+     *
      * @return string
      */
     public function formatArray($content)
