@@ -17,10 +17,11 @@ abstract class BaseAdapterTest extends PHPUnit_Framework_TestCase
         $this->container['Illuminate\Container\Container'] = $this->container;
         $this->container['api.auth'] = new MiddlewareStub;
         $this->container['api.limiting'] = new MiddlewareStub;
+        $this->container['request'] = new Http\Request;
 
         $this->adapter = $this->getAdapterInstance();
         $this->exception = m::mock('Dingo\Api\Exception\Handler');
-        $this->router = new Router($this->adapter, new Http\Parser\Accept('api', 'v1', 'json'), $this->exception, $this->container, null, null);
+        $this->router = new Router($this->adapter, new Http\Parser\Accept('vnd', 'api', 'v1', 'json'), $this->exception, $this->container, null, null);
 
         Http\Response::setFormatters(['json' => new Http\Response\Format\Json]);
     }
@@ -80,6 +81,9 @@ abstract class BaseAdapterTest extends PHPUnit_Framework_TestCase
 
         $request = $this->createRequest('/foo', 'GET', ['accept' => 'application/vnd.api.v1+json']);
         $this->assertEquals('foo', $this->router->dispatch($request)->getContent());
+
+        $request = $this->createRequest('/foo/', 'GET', ['accept' => 'application/vnd.api.v1+json']);
+        $this->assertEquals('foo', $this->router->dispatch($request)->getContent(), 'Could not dispatch request with trailing slash.');
 
         $request = $this->createRequest('/foo', 'GET', ['accept' => 'application/vnd.api.v2+json']);
         $this->assertEquals('bar', $this->router->dispatch($request)->getContent());

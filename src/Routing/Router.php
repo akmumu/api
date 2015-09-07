@@ -376,7 +376,7 @@ class Router
         $uri = $uri === '/' ? $uri : '/'.trim($uri, '/');
 
         if (! empty($action['prefix'])) {
-            $uri = '/'.rtrim(trim($action['prefix'], '/').'/'.trim($uri, '/'), '/');
+            $uri = '/'.ltrim(rtrim(trim($action['prefix'], '/').'/'.trim($uri, '/'), '/'), '/');
 
             unset($action['prefix']);
         }
@@ -434,7 +434,11 @@ class Router
 
         $new['where'] = array_merge(array_get($old, 'where', []), array_get($new, 'where', []));
 
-        return array_merge_recursive(array_except($old, ['namespace', 'prefix', 'where']), $new);
+        if (isset($old['as'])) {
+            $new['as'] = $old['as'].array_get($new, 'as', '');
+        }
+
+        return array_merge_recursive(array_except($old, ['namespace', 'prefix', 'where', 'as']), $new);
     }
 
     /**
@@ -813,7 +817,7 @@ class Router
 
         $action = $route->getAction();
 
-        return isset($action['controller']) ? $action['controller'] : null;
+        return is_string($action['uses']) ? $action['uses'] : null;
     }
 
     /**

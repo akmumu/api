@@ -63,14 +63,14 @@ class Route
      *
      * @var array
      */
-    protected $scopes = [];
+    protected $scopes;
 
     /**
      * Array of authentication providers.
      *
      * @var array
      */
-    protected $authProviders = [];
+    protected $authProviders;
 
     /**
      * The rate limit for this route.
@@ -115,6 +115,13 @@ class Route
     protected $conditionalRequest = true;
 
     /**
+     * Middleware applied to route.
+     *
+     * @var array
+     */
+    protected $middleware;
+
+    /**
      * Create a new route instance.
      *
      * @param \Dingo\Api\Routing\Adapter\Adapter $adapter
@@ -129,88 +136,10 @@ class Route
         $this->adapter = $adapter;
         $this->container = $container;
 
-        $this->setupRoute($route, $request);
-    }
-
-    /**
-     * Create the route from the existing route and request instance.
-     *
-     * @param mixed                    $route
-     * @param \Illuminate\Http\Request $request
-     *
-     * @return void
-     */
-    protected function setupRoute($route, Request $request)
-    {
         list($this->uri, $this->methods, $this->action) = $this->adapter->getRouteProperties($route, $request);
-
-        $this->makeController();
-
-        $this->setupScopes();
-        $this->setupAuthProviders();
-        $this->setupRateLimiting();
-        $this->setupThrottle();
 
         $this->versions = array_pull($this->action, 'version');
         $this->conditionalRequest = array_pull($this->action, 'conditionalRequest', true);
-    }
-
-    /**
-     * Setup the route throttle by replacing it with the controller throttle.
-     *
-     * @return void
-     */
-    protected function setupThrottle()
-    {
-        $this->throttle = array_pull($this->action, 'throttle', []);
-
-        $this->findControllerOptions('throttles', function ($value) {
-            $this->throttle = $value['throttle'];
-        });
-    }
-
-    /**
-     * Setup the route rate limiting by merging the controller rate limiting.
-     *
-     * @return void
-     */
-    protected function setupRateLimiting()
-    {
-        $this->rateLimit = array_pull($this->action, 'limit', 0);
-        $this->rateExpiration = array_pull($this->action, 'expires', 0);
-
-        $this->findControllerOptions('rateLimit', function ($value) {
-            $this->rateLimit = $value['limit'];
-            $this->rateExpiration = $value['expires'];
-        });
-    }
-
-    /**
-     * Setup the route authentication providers by merging the controller providers.
-     *
-     * @return void
-     */
-    protected function setupAuthProviders()
-    {
-        $this->authProviders = array_pull($this->action, 'providers', []);
-
-        $this->findControllerOptions('providers', function ($value) {
-            $this->authProviders = array_merge($this->authProviders, $value['providers']);
-        });
-    }
-
-    /**
-     * Setup the route scopes by merging any controller scopes.
-     *
-     * @return void
-     */
-    protected function setupScopes()
-    {
-        $this->scopes = array_pull($this->action, 'scopes', []);
-
-        $this->findControllerOptions('scopes', function ($value) {
-            $this->scopes = array_merge($this->scopes, $value['scopes']);
-        });
     }
 
     /**
@@ -296,13 +225,15 @@ class Route
     }
 
     /**
-     * Determine if the route uses a controller.
+     * Determine if the route uses a controller with the helpers trait.
      *
      * @return bool
      */
     public function usesController()
     {
-        return ! is_null($this->controller) && method_exists($this->controller, $this->getControllerPropertiesMethodName());
+        $controller = $this->getController();
+
+        return ! is_null($controller) && method_exists($controller, $this->getControllerPropertiesMethodName());
     }
 
     /**
@@ -312,29 +243,43 @@ class Route
      */
     public function getController()
     {
-        return $this->controller;
+        if (! isset($this->action['uses']) || ! is_string($this->action['uses'])) {
+            return;
+        } elseif (isset($this->controller)) {
+            return $this->controller;
+        }
+
+        if (str_contains($this->action['uses'], '@')) {
+            list($controller, $this->method) = explode('@', $this->action['uses']);
+
+            return $this->controller = $this->container->make($controller);
+        }
     }
 
     /**
-     * Make a controller instance from the "uses" action key if it's
-     * in the controller format.
+     * Get the middleware applied to the route.
      *
-     * @return void
+     * @return array
      */
-    protected function makeController()
+    public function getMiddleware()
     {
-        if (! isset($this->action['uses']) || ! is_string($this->action['uses'])) {
-            return;
+        if (! is_null($this->middleware)) {
+            return $this->middleware;
         }
 
-        $this->action['controller'] = $this->action['uses'];
+        $this->middleware = [];
 
-        if (str_contains($this->action['uses'], '@')) {
-            list($controller, $method) = explode('@', $this->action['uses']);
+        foreach ($this->action['middleware'] as $middleware) {
+            list($middleware, $options) = array_merge(explode(':', $middleware), [[]]);
 
-            $this->controller = $this->container->make($controller);
-            $this->method = $method;
+            $this->middleware[$middleware] = $options;
         }
+
+        if ($controller = $this->getController()) {
+            $this->middleware = array_merge($this->middleware, $controller->getMiddleware());
+        }
+
+        return $this->middleware;
     }
 
     /**
@@ -344,7 +289,7 @@ class Route
      */
     public function hasThrottle()
     {
-        return ! is_null($this->throttle);
+        return ! is_null($this->getThrottle());
     }
 
     /**
@@ -354,6 +299,18 @@ class Route
      */
     public function getThrottle()
     {
+        if (is_null($this->throttle)) {
+            $this->throttle = array_pull($this->action, 'throttle', []);
+
+            $this->findControllerOptions('throttles', function ($value) {
+                $this->throttle = $value['throttle'];
+            });
+
+            if (is_string($this->throttle)) {
+                $this->throttle = $this->container->make($this->throttle);
+            }
+        }
+
         return $this->throttle;
     }
 
@@ -384,6 +341,14 @@ class Route
      */
     public function getScopes()
     {
+        if (is_null($this->scopes)) {
+            $this->scopes = array_pull($this->action, 'scopes', []);
+
+            $this->findControllerOptions('scopes', function ($value) {
+                $this->scopes = array_merge($this->scopes, $value['scopes']);
+            });
+        }
+
         return $this->scopes;
     }
 
@@ -394,6 +359,14 @@ class Route
      */
     public function getAuthProviders()
     {
+        if (is_null($this->authProviders)) {
+            $this->authProviders = array_pull($this->action, 'providers', []);
+
+            $this->findControllerOptions('providers', function ($value) {
+                $this->authProviders = array_merge($this->authProviders, $value['providers']);
+            });
+        }
+
         return $this->authProviders;
     }
 
@@ -404,6 +377,14 @@ class Route
      */
     public function getRateLimit()
     {
+        if (is_null($this->rateLimit)) {
+            $this->rateLimit = array_pull($this->action, 'limit', 0);
+
+            $this->findControllerOptions('rateLimit', function ($value) {
+                $this->rateLimit = $value['limit'];
+            });
+        }
+
         return $this->rateLimit;
     }
 
@@ -414,6 +395,14 @@ class Route
      */
     public function getRateExpiration()
     {
+        if (is_null($this->rateExpiration)) {
+            $this->rateExpiration = array_pull($this->action, 'expires', 0);
+
+            $this->findControllerOptions('rateLimit', function ($value) {
+                $this->rateExpiration = $value['expires'];
+            });
+        }
+
         return $this->rateExpiration;
     }
 
